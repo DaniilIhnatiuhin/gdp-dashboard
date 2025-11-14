@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import io
-from datetime import datetime
 import matplotlib.pyplot as plt
 
 # Set page configuration with favicon
 st.set_page_config(
     page_title='Data Visualization Dashboard',
     page_icon=':chart_with_upwards_trend:',
-    layout='wide'
+    layout='wide',
+    initial_sidebar_state='collapsed'
 )
 
 # Initialize session state variables
@@ -17,87 +15,152 @@ if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if 'df' not in st.session_state:
     st.session_state.df = None
-if 'date_column' not in st.session_state:
-    st.session_state.date_column = None
-if 'value_column' not in st.session_state:
-    st.session_state.value_column = None
-if 'data_warnings' not in st.session_state:
-    st.session_state.data_warnings = []
+if 'x_column' not in st.session_state:
+    st.session_state.x_column = None
+if 'y_column' not in st.session_state:
+    st.session_state.y_column = None
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'light'  # Default theme
 
-def validate_and_clean_data(df):
-    """Validate dataset and clean inappropriate data elements"""
-    warnings = []
-    
-    # Check for null values
-    null_counts = df.isnull().sum()
-    columns_with_nulls = null_counts[null_counts > 0]
-    if not columns_with_nulls.empty:
-        warnings.append(f"Dataset contains null values in columns: {', '.join(columns_with_nulls.index.tolist())}. These rows will be skipped in visualization.")
-    
-    # Check for inappropriate data types
-    for col in df.columns:
-        # Try to detect if column can be parsed as date
-        try:
-            pd.to_datetime(df[col], errors='raise')
-            # If successful, this is a potential date column
-        except (ValueError, TypeError):
-            pass
-    
-    return warnings
+# Theme toggle function
+def toggle_theme():
+    st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
 
-def detect_date_columns(df):
-    """Detect columns that can be parsed as dates"""
-    date_columns = []
-    
-    for col in df.columns:
-        # Skip columns with too many nulls
-        if df[col].isnull().sum() / len(df) > 0.5:
-            continue
-            
-        # Try to parse as datetime with different approaches
-        try:
-            # First try with infer_datetime_format
-            parsed = pd.to_datetime(df[col], errors='coerce', infer_datetime_format=True)
-            if parsed.notnull().sum() > len(df) * 0.7:  # At least 70% valid dates
-                date_columns.append(col)
-        except:
-            continue
-            
-        try:
-            # Try with dayfirst assumption
-            parsed = pd.to_datetime(df[col], errors='coerce', dayfirst=True)
-            if parsed.notnull().sum() > len(df) * 0.7:
-                if col not in date_columns:
-                    date_columns.append(col)
-        except:
-            continue
-    
-    return date_columns
-
-def detect_numerical_columns(df):
-    """Detect numerical columns, excluding dates"""
-    numerical_columns = []
-    
-    for col in df.columns:
-        # Skip if column is already identified as date
-        try:
-            pd.to_datetime(df[col], errors='coerce')
-            continue
-        except:
-            pass
+# Add custom CSS for theme support with proper contrast
+st.markdown(f"""
+<style>
+    /* Theme-aware CSS variables */
+    :root {{
+        --light-bg-primary: #ffffff;
+        --light-bg-secondary: #f8f9fa;
+        --light-bg-tertiary: #e9ecef;
+        --light-text-primary: #212529;
+        --light-text-secondary: #6c757d;
+        --light-border: #dee2e6;
+        --light-accent: #0d6efd;
         
-        # Check if column can be converted to numeric
-        try:
-            numeric_series = pd.to_numeric(df[col], errors='coerce')
-            if numeric_series.notnull().sum() > len(df) * 0.7:  # At least 70% numeric values
-                numerical_columns.append(col)
-        except:
-            continue
+        --dark-bg-primary: #1e1e1e;
+        --dark-bg-secondary: #2d2d2d;
+        --dark-bg-tertiary: #3d3d3d;
+        --dark-text-primary: #f8f9fa;
+        --dark-text-secondary: #adb5bd;
+        --dark-border: #495057;
+        --dark-accent: #4da6ff;
+    }}
     
-    return numerical_columns
+    /* Apply theme based on session state */
+    {'body { background-color: var(--light-bg-primary); color: var(--light-text-primary); }' if st.session_state.theme == 'light' else 'body { background-color: var(--dark-bg-primary); color: var(--dark-text-primary); }'}
+    
+    .welcome-container {{
+        text-align: center;
+        padding: 25px;
+        border-radius: 12px;
+        margin: 20px 0;
+        transition: all 0.3s ease;
+        {'background-color: var(--light-bg-secondary); border: 1px solid var(--light-border);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary); border: 1px solid var(--dark-border);'}
+    }}
+    
+    .welcome-title {{
+        {'color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-primary);'}
+        font-size: 1.5em;
+        margin-bottom: 10px;
+        font-weight: 600;
+    }}
+    
+    .welcome-text {{
+        {'color: var(--light-text-secondary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-secondary);'}
+        font-size: 1.1em;
+        line-height: 1.5;
+    }}
+    
+    .hint-icon {{
+        font-size: 1.8em;
+        margin-bottom: 15px;
+        {'color: var(--light-accent);' if st.session_state.theme == 'light' else 'color: var(--dark-accent);'}
+    }}
+    
+    .theme-toggle-container {{
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }}
+    
+    .theme-button {{
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        {'background-color: var(--light-bg-secondary); color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary); color: var(--dark-text-primary);'}
+    }}
+    
+    .theme-button:hover {{
+        {'background-color: var(--light-bg-tertiary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-tertiary);'}
+    }}
+    
+    .sidebar-header {{
+        {'color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-primary);'}
+        font-weight: 600;
+    }}
+    
+    .footer {{
+        text-align: center;
+        padding: 15px;
+        margin-top: 30px;
+        border-radius: 8px;
+        {'background-color: var(--light-bg-secondary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary);'}
+    }}
+    
+    .footer-text {{
+        {'color: var(--light-text-secondary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-secondary);'}
+        font-size: 0.9em;
+    }}
+    
+    .chart-placeholder {{
+        {'background-color: var(--light-bg-secondary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary);'}
+        border-radius: 8px;
+        padding: 20px;
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+    }}
+    
+    .chart-placeholder-text {{
+        {'color: var(--light-text-secondary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-secondary);'}
+        font-size: 1.2em;
+        opacity: 0.8;
+        margin: 10px 0;
+    }}
+    
+    .chart-placeholder-title {{
+        {'color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-primary);'}
+        font-size: 1.4em;
+        font-weight: 500;
+        margin: 5px 0;
+    }}
+    
+    .column-selector {{
+        margin: 10px 0;
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+# Add theme toggle button in the upper right corner
+st.markdown('<div class="theme-toggle-container">', unsafe_allow_html=True)
+if st.button("🌓 Toggle Theme", key="theme_toggle", help="Switch between light and dark themes"):
+    toggle_theme()
+st.markdown('</div>', unsafe_allow_html=True)
 
 def load_data(file):
-    """Load data from uploaded file with validation"""
+    """Load data from uploaded file with minimal validation"""
     try:
         if file.name.endswith('.csv'):
             df = pd.read_csv(file)
@@ -119,7 +182,7 @@ def load_data(file):
 
 # Create sidebar menu (accessible via upper-right toggle button)
 with st.sidebar:
-    st.header("📋 Data Configuration")
+    st.markdown(f'<h3 class="sidebar-header">📋 Data Configuration</h3>', unsafe_allow_html=True)
     st.markdown("---")
     
     uploaded_file = st.file_uploader("📁 Upload Dataset", type=['csv', 'xlsx', 'xls'])
@@ -130,62 +193,64 @@ with st.sidebar:
         if df is not None:
             st.session_state.df = df
             
-            # Validate data and get warnings
-            warnings = validate_and_clean_data(df)
-            st.session_state.data_warnings = warnings
+            # Get all column names for selection
+            all_columns = list(df.columns)
             
-            # Show warnings if any
-            for warning in warnings:
-                st.warning(warning)
-            
-            # Detect date columns
-            date_columns = detect_date_columns(df)
-            
-            if not date_columns:
-                st.error("❌ No valid date columns found in the dataset. Please ensure your data contains a column with date/time values.")
+            if not all_columns:
+                st.warning("No columns found in the dataset.")
             else:
-                st.session_state.date_column = st.selectbox(
-                    "📅 Select Date Column (X-axis)",
-                    options=date_columns,
-                    help="Choose the column containing date/time values for the X-axis"
+                # X-axis column selection (any column)
+                st.session_state.x_column = st.selectbox(
+                    "AxisSize X-axis Column",
+                    options=all_columns,
+                    help="Choose any column for the X-axis"
                 )
-            
-            # Detect numerical columns
-            numerical_columns = detect_numerical_columns(df)
-            
-            if not numerical_columns:
-                st.error("❌ No valid numerical columns found. Please ensure your data contains at least one column with numeric values.")
-            else:
-                st.session_state.value_column = st.selectbox(
-                    "📈 Select Value Column (Y-axis)",
-                    options=numerical_columns,
-                    help="Choose the column containing numeric values for the Y-axis"
+                
+                # Y-axis column selection (any column)
+                st.session_state.y_column = st.selectbox(
+                    "AxisSize Y-axis Column", 
+                    options=all_columns,
+                    help="Choose any column for the Y-axis"
                 )
-            
-            if st.button("🚀 Generate Chart", type="primary", use_container_width=True):
-                if st.session_state.date_column and st.session_state.value_column:
+                
+                # Allow same column selection for X and Y
+                if st.session_state.x_column == st.session_state.y_column:
+                    st.info("💡 You've selected the same column for both X and Y axes. This is allowed.")
+                
+                if st.button("🚀 Generate Chart", type="primary", use_container_width=True):
                     st.session_state.data_loaded = True
-                    st.success("✅ Chart generated successfully!")
-                else:
-                    st.error("❌ Please select both date and value columns.")
     
     st.markdown("---")
-    st.markdown("### ℹ️ Requirements")
-    st.markdown("""
-    - **Date Column**: Must contain date/time values
-    - **Value Column**: Must contain numerical data
-    - **Data Quality**: Null values will be skipped automatically
-    - **File Types**: CSV or Excel (.xlsx, .xls)
-    """)
+    st.markdown(f'<h4 class="sidebar-header">ℹ️ Flexible Data Handling</h4>', unsafe_allow_html=True)
+    info_text = """
+    <div style="color: var(--light-text-secondary);" class="requirement-item">
+        • <strong>Any Data Format:</strong> No restrictions on column types<br>
+        • <strong>Any Columns:</strong> Select any columns for X and Y axes<br>
+        • <strong>No Validation:</strong> No warnings or errors for data quality<br>
+        • <strong>Permissive:</strong> The app will attempt to plot any data you provide
+    </div>
+    """
+    st.markdown(info_text, unsafe_allow_html=True)
 
 # Main content area
 st.title('📊 Data Visualization Dashboard')
-st.markdown('''
-<div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin: 20px 0;">
-    <h3>👋 Welcome to the Dashboard!</h3>
-    <p>Click the <strong>≣ menu button</strong> in the upper-right corner to upload your dataset and start visualizing.</p>
-</div>
-''', unsafe_allow_html=True)
+
+# Show welcome message with proper theming
+if not st.session_state.data_loaded:
+    st.markdown(f'''
+    <div class="welcome-container">
+        <div class="hint-icon">👋</div>
+        <div class="welcome-title">Welcome to the Dashboard!</div>
+        <div class="welcome-text">Click the <strong>≣ menu button</strong> in the upper-right corner to upload your dataset and start visualizing.</div>
+    </div>
+    ''', unsafe_allow_html=True)
+else:
+    st.markdown('''
+    <div class="welcome-container">
+        <div class="welcome-title">Dataset Loaded Successfully!</div>
+        <div class="welcome-text">Your data is now visualized below. Use the sidebar to adjust settings or upload a new dataset.</div>
+    </div>
+    ''', unsafe_allow_html=True)
 
 # Create placeholder for chart
 chart_placeholder = st.empty()
@@ -194,56 +259,59 @@ chart_placeholder = st.empty()
 info_placeholder = st.empty()
 
 if not st.session_state.data_loaded:
-    # Show blank chart with hint
+    # Show blank chart with hint using theme-aware styling
     with chart_placeholder:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.text(0.5, 0.5, 'Click the menu button (≣) in the upper-right corner\nto upload your dataset and start visualizing!',
-                ha='center', va='center', fontsize=14, color='gray', alpha=0.7)
-        ax.set_title('📊 Blank Chart - Ready for Your Data', fontsize=16, color='gray', alpha=0.5)
-        ax.grid(True, alpha=0.2)
-        st.pyplot(fig)
+        st.markdown(f'''
+        <div class="chart-placeholder">
+            <div class="chart-placeholder-text">Click the menu button (≣) in the upper-right corner</div>
+            <div class="chart-placeholder-text">to upload your dataset and start visualizing!</div>
+            <div class="chart-placeholder-title">📊 Blank Chart - Ready for Your Data</div>
+        </div>
+        ''', unsafe_allow_html=True)
     
     with info_placeholder:
-        st.info("💡 **Tip**: Your dataset should contain at least one date column and one numerical column for optimal visualization.")
+        st.info("💡 **Tip**: This app accepts any dataset format. No restrictions on column types or data quality.")
 else:
     # Display the actual chart with data
     df = st.session_state.df
     
-    if df is not None and st.session_state.date_column and st.session_state.value_column:
+    if df is not None and st.session_state.x_column and st.session_state.y_column:
         try:
             # Create copy to avoid modifying original data
             plot_df = df.copy()
             
-            # Convert date column to datetime
-            plot_df[st.session_state.date_column] = pd.to_datetime(
-                plot_df[st.session_state.date_column], 
-                errors='coerce',
-                infer_datetime_format=True
-            )
-            
-            # Convert value column to numeric
-            plot_df[st.session_state.value_column] = pd.to_numeric(
-                plot_df[st.session_state.value_column], 
-                errors='coerce'
-            )
-            
-            # Drop rows with null values in the key columns
-            plot_df = plot_df.dropna(subset=[st.session_state.date_column, st.session_state.value_column])
-            
-            # Sort by date
-            plot_df = plot_df.sort_values(by=st.session_state.date_column)
+            # Do not attempt to convert data types - use as-is
+            x_data = plot_df[st.session_state.x_column]
+            y_data = plot_df[st.session_state.y_column]
             
             with chart_placeholder:
-                st.subheader(f"📈 {st.session_state.value_column} over Time")
+                st.subheader(f"📈 {st.session_state.y_column} vs {st.session_state.x_column}")
                 
-                # Create interactive chart using Streamlit's native chart
-                st.line_chart(
-                    plot_df.set_index(st.session_state.date_column)[st.session_state.value_column],
-                    use_container_width=True,
-                    height=500
-                )
+                # Try to create chart with minimal error handling
+                try:
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    
+                    # Attempt to plot - this may fail with non-numeric data but we catch the error
+                    ax.plot(x_data, y_data, marker='o', linestyle='-')
+                    
+                    ax.set_xlabel(st.session_state.x_column)
+                    ax.set_ylabel(st.session_state.y_column)
+                    ax.set_title(f'{st.session_state.y_column} vs {st.session_state.x_column}')
+                    ax.grid(True, alpha=0.3)
+                    
+                    # Rotate x-axis labels if they're text
+                    if x_data.dtype == 'object' or x_data.dtype.name == 'category':
+                        plt.xticks(rotation=45, ha='right')
+                    
+                    st.pyplot(fig)
+                    
+                except Exception as plot_error:
+                    # Fallback to simple display if plotting fails
+                    st.warning(f"Could not create chart: {str(plot_error)}")
+                    st.write("Raw data preview:")
+                    st.dataframe(plot_df[[st.session_state.x_column, st.session_state.y_column]].head(10))
             
-            # Show data summary
+            # Show basic data info without warnings
             with info_placeholder:
                 col1, col2, col3 = st.columns(3)
                 
@@ -251,32 +319,39 @@ else:
                     st.metric("📊 Total Rows", len(df))
                 
                 with col2:
-                    st.metric("✅ Valid Rows", len(plot_df))
+                    st.metric("📏 X Column", st.session_state.x_column)
                 
                 with col3:
-                    st.metric("EmptyEntries Skipped", len(df) - len(plot_df))
+                    st.metric("📏 Y Column", st.session_state.y_column)
                 
                 # Show data preview in expander
                 with st.expander("🔍 View Data Preview"):
-                    st.dataframe(plot_df.head(10))
+                    st.write(f"Showing first 10 rows of {len(df)} total rows")
+                    preview_df = df.head(10)
+                    st.dataframe(preview_df)
                     
-                    # Show data types
-                    st.subheader("Column Data Types")
-                    dtype_df = pd.DataFrame({
-                        'Column': plot_df.columns,
-                        'Data Type': plot_df.dtypes.astype(str)
+                    # Show basic column info
+                    st.subheader("Column Information")
+                    col_info = pd.DataFrame({
+                        'Column': df.columns,
+                        'Data Type': df.dtypes.astype(str),
+                        'Non-Null Count': df.count()
                     })
-                    st.dataframe(dtype_df)
+                    st.dataframe(col_info)
         
         except Exception as e:
-            st.error(f"Error generating chart: {str(e)}")
-            st.session_state.data_loaded = False
+            # Generic error handling without specific validation messages
+            st.error(f"An error occurred while processing your data: {str(e)}")
+            if st.button("🔄 Try Again"):
+                st.session_state.data_loaded = False
 
-# Footer
+# Footer with theme-aware styling
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; padding: 10px; color: #666;">
-    <small>✅ Data Validation • 🔒 Secure File Handling • 📊 Interactive Visualization</small><br>
-    <small>Built with Streamlit • For educational and analytical purposes only</small>
+st.markdown(f"""
+<div class="footer">
+    <div class="footer-text">
+        🔄 Flexible Data Handling • 🔒 Secure File Uploads • 📊 Interactive Visualization<br>
+        <small>Built with Streamlit • No data restrictions • All column types accepted</small>
+    </div>
 </div>
 """, unsafe_allow_html=True)
