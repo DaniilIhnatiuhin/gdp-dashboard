@@ -1,357 +1,324 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
+import plotly.express as px
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
+import io
+import base64
 
-# Set page configuration with favicon
+# Set page config
 st.set_page_config(
-    page_title='Data Visualization Dashboard',
-    page_icon=':chart_with_upwards_trend:',
-    layout='wide',
-    initial_sidebar_state='collapsed'
+    page_title="Housing Data Explorer",
+    page_icon="🏠",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Initialize session state variables
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-if 'df' not in st.session_state:
-    st.session_state.df = None
-if 'x_column' not in st.session_state:
-    st.session_state.x_column = None
-if 'y_column' not in st.session_state:
-    st.session_state.y_column = None
-if 'theme' not in st.session_state:
-    st.session_state.theme = 'light'  # Default theme
-
-# Theme toggle function
-def toggle_theme():
-    st.session_state.theme = 'dark' if st.session_state.theme == 'light' else 'light'
-
-# Add custom CSS for theme support with proper contrast
-st.markdown(f"""
+# Custom CSS for better UI
+st.markdown("""
 <style>
-    /* Theme-aware CSS variables */
-    :root {{
-        --light-bg-primary: #ffffff;
-        --light-bg-secondary: #f8f9fa;
-        --light-bg-tertiary: #e9ecef;
-        --light-text-primary: #212529;
-        --light-text-secondary: #6c757d;
-        --light-border: #dee2e6;
-        --light-accent: #0d6efd;
-        
-        --dark-bg-primary: #1e1e1e;
-        --dark-bg-secondary: #2d2d2d;
-        --dark-bg-tertiary: #3d3d3d;
-        --dark-text-primary: #f8f9fa;
-        --dark-text-secondary: #adb5bd;
-        --dark-border: #495057;
-        --dark-accent: #4da6ff;
-    }}
-    
-    /* Apply theme based on session state */
-    {'body { background-color: var(--light-bg-primary); color: var(--light-text-primary); }' if st.session_state.theme == 'light' else 'body { background-color: var(--dark-bg-primary); color: var(--dark-text-primary); }'}
-    
-    .welcome-container {{
-        text-align: center;
-        padding: 25px;
-        border-radius: 12px;
-        margin: 20px 0;
-        transition: all 0.3s ease;
-        {'background-color: var(--light-bg-secondary); border: 1px solid var(--light-border);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary); border: 1px solid var(--dark-border);'}
-    }}
-    
-    .welcome-title {{
-        {'color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-primary);'}
-        font-size: 1.5em;
-        margin-bottom: 10px;
-        font-weight: 600;
-    }}
-    
-    .welcome-text {{
-        {'color: var(--light-text-secondary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-secondary);'}
-        font-size: 1.1em;
-        line-height: 1.5;
-    }}
-    
-    .hint-icon {{
-        font-size: 1.8em;
-        margin-bottom: 15px;
-        {'color: var(--light-accent);' if st.session_state.theme == 'light' else 'color: var(--dark-accent);'}
-    }}
-    
-    .theme-toggle-container {{
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
-        z-index: 1000;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }}
-    
-    .theme-button {{
+    .stApp {
+        background-color: #f8f9fa;
+    }
+    .sidebar .sidebar-content {
+        background-color: #f1f3f5;
+    }
+    .css-1d391kg {
+        padding: 1rem 1rem 1.5rem;
+    }
+    .stButton button {
+        background-color: #4e79a7;
+        color: white;
+        border-radius: 4px;
         padding: 0.5rem 1rem;
-        border-radius: 20px;
-        border: none;
-        cursor: pointer;
-        font-weight: 500;
-        transition: all 0.2s ease;
-        {'background-color: var(--light-bg-secondary); color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary); color: var(--dark-text-primary);'}
-    }}
-    
-    .theme-button:hover {{
-        {'background-color: var(--light-bg-tertiary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-tertiary);'}
-    }}
-    
-    .sidebar-header {{
-        {'color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-primary);'}
-        font-weight: 600;
-    }}
-    
-    .footer {{
-        text-align: center;
-        padding: 15px;
-        margin-top: 30px;
-        border-radius: 8px;
-        {'background-color: var(--light-bg-secondary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary);'}
-    }}
-    
-    .footer-text {{
-        {'color: var(--light-text-secondary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-secondary);'}
-        font-size: 0.9em;
-    }}
-    
-    .chart-placeholder {{
-        {'background-color: var(--light-bg-secondary);' if st.session_state.theme == 'light' else 'background-color: var(--dark-bg-secondary);'}
-        border-radius: 8px;
-        padding: 20px;
-        min-height: 400px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-    }}
-    
-    .chart-placeholder-text {{
-        {'color: var(--light-text-secondary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-secondary);'}
-        font-size: 1.2em;
-        opacity: 0.8;
-        margin: 10px 0;
-    }}
-    
-    .chart-placeholder-title {{
-        {'color: var(--light-text-primary);' if st.session_state.theme == 'light' else 'color: var(--dark-text-primary);'}
-        font-size: 1.4em;
-        font-weight: 500;
-        margin: 5px 0;
-    }}
-    
-    .column-selector {{
-        margin: 10px 0;
-    }}
+    }
+    .stSelectbox {
+        margin-bottom: 1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Add theme toggle button in the upper right corner
-st.markdown('<div class="theme-toggle-container">', unsafe_allow_html=True)
-if st.button("🌓 Toggle Theme", key="theme_toggle", help="Switch between light and dark themes"):
-    toggle_theme()
-st.markdown('</div>', unsafe_allow_html=True)
+# Title and description
+st.title("🏠 Housing Data Explorer")
+st.markdown("Upload your housing dataset and explore prices with interactive maps and filters")
 
-def load_data(file):
-    """Load data from uploaded file with minimal validation"""
-    try:
-        if file.name.endswith('.csv'):
-            df = pd.read_csv(file)
-        elif file.name.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(file)
-        else:
-            st.error("Unsupported file format. Please upload CSV or Excel files only.")
-            return None
-        
-        if df.empty:
-            st.error("Uploaded file is empty. Please upload a file with data.")
-            return None
-        
-        return df
-    
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        return None
+# Initialize session state
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+    st.session_state.df = None
+    st.session_state.default_lon = None
+    st.session_state.default_lat = None
+    st.session_state.default_price = None
 
-# Create sidebar menu (accessible via upper-right toggle button)
+# Sidebar for controls
 with st.sidebar:
-    st.markdown(f'<h3 class="sidebar-header">📋 Data Configuration</h3>', unsafe_allow_html=True)
-    st.markdown("---")
+    st.header("⚙️ Data Controls")
     
-    uploaded_file = st.file_uploader("📁 Upload Dataset", type=['csv', 'xlsx', 'xls'])
+    # File uploader
+    uploaded_file = st.file_uploader("Upload Housing CSV File", type=['csv'])
     
-    if uploaded_file:
-        df = load_data(uploaded_file)
-        
-        if df is not None:
-            st.session_state.df = df
-            
-            # Get all column names for selection
-            all_columns = list(df.columns)
-            
-            if not all_columns:
-                st.warning("No columns found in the dataset.")
+    if uploaded_file is not None:
+        try:
+            # Read CSV with flexible separator detection
+            content = uploaded_file.getvalue().decode('utf-8')
+            if ';' in content[:100]:
+                df = pd.read_csv(uploaded_file, sep=';')
+            elif ',' in content[:100]:
+                df = pd.read_csv(uploaded_file, sep=',')
             else:
-                # X-axis column selection (any column)
-                st.session_state.x_column = st.selectbox(
-                    "AxisSize X-axis Column",
-                    options=all_columns,
-                    help="Choose any column for the X-axis"
-                )
-                
-                # Y-axis column selection (any column)
-                st.session_state.y_column = st.selectbox(
-                    "AxisSize Y-axis Column", 
-                    options=all_columns,
-                    help="Choose any column for the Y-axis"
-                )
-                
-                # Allow same column selection for X and Y
-                if st.session_state.x_column == st.session_state.y_column:
-                    st.info("💡 You've selected the same column for both X and Y axes. This is allowed.")
-                
-                if st.button("🚀 Generate Chart", type="primary", use_container_width=True):
-                    st.session_state.data_loaded = True
+                df = pd.read_csv(uploaded_file, sep='\t')
+            
+            st.session_state.df = df
+            st.session_state.data_loaded = True
+            st.success("✅ Data loaded successfully!")
+            
+        except Exception as e:
+            st.error(f"❌ Error loading file: {str(e)}")
+            st.session_state.data_loaded = False
     
-    st.markdown("---")
-    st.markdown(f'<h4 class="sidebar-header">ℹ️ Flexible Data Handling</h4>', unsafe_allow_html=True)
-    info_text = """
-    <div style="color: var(--light-text-secondary);" class="requirement-item">
-        • <strong>Any Data Format:</strong> No restrictions on column types<br>
-        • <strong>Any Columns:</strong> Select any columns for X and Y axes<br>
-        • <strong>No Validation:</strong> No warnings or errors for data quality<br>
-        • <strong>Permissive:</strong> The app will attempt to plot any data you provide
-    </div>
-    """
-    st.markdown(info_text, unsafe_allow_html=True)
+    if st.session_state.data_loaded and st.session_state.df is not None:
+        df = st.session_state.df
+        
+        st.header("🗺️ Map Settings")
+        
+        # Auto-detect coordinate columns
+        lon_col_options = [col for col in df.columns if 'lon' in col.lower() or 'long' in col.lower() or 'x' in col.lower()]
+        lat_col_options = [col for col in df.columns if 'lat' in col.lower() or 'y' in col.lower()]
+        
+        # Default selections
+        default_lon = st.session_state.default_lon or (lon_col_options[0] if lon_col_options else df.columns[0])
+        default_lat = st.session_state.default_lat or (lat_col_options[0] if lat_col_options else df.columns[1])
+        
+        # Coordinate column selection
+        longitude_col = st.selectbox(
+            "Longitude Column",
+            options=df.columns.tolist(),
+            index=df.columns.tolist().index(default_lon) if default_lon in df.columns else 0,
+            help="Select the column containing longitude coordinates"
+        )
+        
+        latitude_col = st.selectbox(
+            "Latitude Column",
+            options=df.columns.tolist(),
+            index=df.columns.tolist().index(default_lat) if default_lat in df.columns else 1,
+            help="Select the column containing latitude coordinates"
+        )
+        
+        # Value column selection
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if numeric_cols:
+            default_price = st.session_state.default_price or ('median_house_value' if 'median_house_value' in numeric_cols else numeric_cols[0])
+            value_col = st.selectbox(
+                "Value to Display on Map",
+                options=numeric_cols,
+                index=numeric_cols.index(default_price) if default_price in numeric_cols else 0,
+                help="Select the numeric column to visualize on the map"
+            )
+        else:
+            value_col = None
+            st.warning("⚠️ No numeric columns found in the dataset")
+        
+        st.header("🔍 Filters")
+        
+        # Numeric filters
+        if numeric_cols:
+            st.subheader("Numeric Filters")
+            for col in numeric_cols:
+                if col in [longitude_col, latitude_col]:
+                    continue
+                
+                min_val = float(df[col].min())
+                max_val = float(df[col].max())
+                
+                # Skip if range is too small or contains NaN
+                if min_val == max_val or np.isnan(min_val) or np.isnan(max_val):
+                    continue
+                
+                filter_vals = st.slider(
+                    f"Filter {col}",
+                    min_value=min_val,
+                    max_value=max_val,
+                    value=(min_val, max_val),
+                    step=(max_val - min_val) / 100 if max_val > min_val else 0.1,
+                    help=f"Filter data by {col} range"
+                )
+                
+                # Apply filter
+                df = df[(df[col] >= filter_vals[0]) & (df[col] <= filter_vals[1])]
+        
+        # Categorical filters
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        if categorical_cols:
+            st.subheader("Categorical Filters")
+            for col in categorical_cols:
+                unique_vals = df[col].dropna().unique().tolist()
+                if len(unique_vals) <= 20:  # Only show filter if reasonable number of unique values
+                    selected_vals = st.multiselect(
+                        f"Filter {col}",
+                        options=unique_vals,
+                        default=unique_vals,
+                        help=f"Select values for {col}"
+                    )
+                    if selected_vals:
+                        df = df[df[col].isin(selected_vals)]
+        
+        # Store filtered data in session state
+        st.session_state.filtered_df = df
+        st.session_state.longitude_col = longitude_col
+        st.session_state.latitude_col = latitude_col
+        st.session_state.value_col = value_col
+        
+        # Save defaults
+        st.session_state.default_lon = longitude_col
+        st.session_state.default_lat = latitude_col
+        st.session_state.default_price = value_col
 
 # Main content area
-st.title('📊 Data Visualization Dashboard')
-
-# Show welcome message with proper theming
-if not st.session_state.data_loaded:
-    st.markdown(f'''
-    <div class="welcome-container">
-        <div class="hint-icon">👋</div>
-        <div class="welcome-title">Welcome to the Dashboard!</div>
-        <div class="welcome-text">Click the <strong>≣ menu button</strong> in the upper-right corner to upload your dataset and start visualizing.</div>
-    </div>
-    ''', unsafe_allow_html=True)
-else:
-    st.markdown('''
-    <div class="welcome-container">
-        <div class="welcome-title">Dataset Loaded Successfully!</div>
-        <div class="welcome-text">Your data is now visualized below. Use the sidebar to adjust settings or upload a new dataset.</div>
-    </div>
-    ''', unsafe_allow_html=True)
-
-# Create placeholder for chart
-chart_placeholder = st.empty()
-
-# Create placeholder for data info
-info_placeholder = st.empty()
-
-if not st.session_state.data_loaded:
-    # Show blank chart with hint using theme-aware styling
-    with chart_placeholder:
-        st.markdown(f'''
-        <div class="chart-placeholder">
-            <div class="chart-placeholder-text">Click the menu button (≣) in the upper-right corner</div>
-            <div class="chart-placeholder-text">to upload your dataset and start visualizing!</div>
-            <div class="chart-placeholder-title">📊 Blank Chart - Ready for Your Data</div>
-        </div>
-        ''', unsafe_allow_html=True)
+if st.session_state.data_loaded and hasattr(st.session_state, 'filtered_df'):
+    df = st.session_state.filtered_df
     
-    with info_placeholder:
-        st.info("💡 **Tip**: This app accepts any dataset format. No restrictions on column types or data quality.")
-else:
-    # Display the actual chart with data
-    df = st.session_state.df
+    # Show data summary
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Records", len(df))
+    with col2:
+        if st.session_state.value_col:
+            avg_value = df[st.session_state.value_col].mean()
+            st.metric(f"Avg {st.session_state.value_col}", f"${avg_value:,.2f}")
+    with col3:
+        if st.session_state.value_col:
+            max_value = df[st.session_state.value_col].max()
+            st.metric(f"Max {st.session_state.value_col}", f"${max_value:,.2f}")
     
-    if df is not None and st.session_state.x_column and st.session_state.y_column:
-        try:
-            # Create copy to avoid modifying original data
-            plot_df = df.copy()
-            
-            # Do not attempt to convert data types - use as-is
-            x_data = plot_df[st.session_state.x_column]
-            y_data = plot_df[st.session_state.y_column]
-            
-            with chart_placeholder:
-                st.subheader(f"📈 {st.session_state.y_column} vs {st.session_state.x_column}")
-                
-                # Try to create chart with minimal error handling
-                try:
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    
-                    # Attempt to plot - this may fail with non-numeric data but we catch the error
-                    ax.plot(x_data, y_data, marker='o', linestyle='-')
-                    
-                    ax.set_xlabel(st.session_state.x_column)
-                    ax.set_ylabel(st.session_state.y_column)
-                    ax.set_title(f'{st.session_state.y_column} vs {st.session_state.x_column}')
-                    ax.grid(True, alpha=0.3)
-                    
-                    # Rotate x-axis labels if they're text
-                    if x_data.dtype == 'object' or x_data.dtype.name == 'category':
-                        plt.xticks(rotation=45, ha='right')
-                    
-                    st.pyplot(fig)
-                    
-                except Exception as plot_error:
-                    # Fallback to simple display if plotting fails
-                    st.warning(f"Could not create chart: {str(plot_error)}")
-                    st.write("Raw data preview:")
-                    st.dataframe(plot_df[[st.session_state.x_column, st.session_state.y_column]].head(10))
-            
-            # Show basic data info without warnings
-            with info_placeholder:
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("📊 Total Rows", len(df))
-                
-                with col2:
-                    st.metric("📏 X Column", st.session_state.x_column)
-                
-                with col3:
-                    st.metric("📏 Y Column", st.session_state.y_column)
-                
-                # Show data preview in expander
-                with st.expander("🔍 View Data Preview"):
-                    st.write(f"Showing first 10 rows of {len(df)} total rows")
-                    preview_df = df.head(10)
-                    st.dataframe(preview_df)
-                    
-                    # Show basic column info
-                    st.subheader("Column Information")
-                    col_info = pd.DataFrame({
-                        'Column': df.columns,
-                        'Data Type': df.dtypes.astype(str),
-                        'Non-Null Count': df.count()
-                    })
-                    st.dataframe(col_info)
+    # Create tabs for different views
+    tab1, tab2, tab3 = st.tabs(["🗺️ Map View", "📊 Data Table", "📈 Statistics"])
+    
+    with tab1:
+        st.header("Geographic Distribution")
         
-        except Exception as e:
-            # Generic error handling without specific validation messages
-            st.error(f"An error occurred while processing your data: {str(e)}")
-            if st.button("🔄 Try Again"):
-                st.session_state.data_loaded = False
+        if st.session_state.longitude_col and st.session_state.latitude_col and st.session_state.value_col:
+            if df.empty:
+                st.warning("⚠️ No data matches the current filters")
+            else:
+                try:
+                    # Create interactive map with plotly
+                    fig = px.scatter_mapbox(
+                        df,
+                        lat=st.session_state.latitude_col,
+                        lon=st.session_state.longitude_col,
+                        color=st.session_state.value_col,
+                        size=st.session_state.value_col,
+                        color_continuous_scale="Viridis",
+                        size_max=15,
+                        zoom=8,
+                        mapbox_style="carto-positron",
+                        hover_data=['median_house_value'] if 'median_house_value' in df.columns else None,
+                        title=f"Housing Prices by Location ({st.session_state.value_col})"
+                    )
+                    
+                    fig.update_layout(
+                        margin={"r":0,"t":30,"l":0,"b":0},
+                        height=600,
+                        coloraxis_colorbar=dict(
+                            title=st.session_state.value_col,
+                            tickprefix="$" if 'price' in st.session_state.value_col.lower() or 'value' in st.session_state.value_col.lower() else ""
+                        )
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Alternative visualization if map has issues
+                    if st.button("Show Scatter Plot (Alternative View)"):
+                        fig2 = px.scatter(
+                            df,
+                            x=st.session_state.longitude_col,
+                            y=st.session_state.latitude_col,
+                            color=st.session_state.value_col,
+                            size=st.session_state.value_col,
+                            color_continuous_scale="Viridis",
+                            size_max=15,
+                            title=f"Location vs Housing Value ({st.session_state.value_col})"
+                        )
+                        fig2.update_layout(height=600)
+                        st.plotly_chart(fig2, use_container_width=True)
+                        
+                except Exception as e:
+                    st.error(f"❌ Error creating map: {str(e)}")
+                    st.warning("💡 Try using the scatter plot alternative view or check your coordinate columns")
+        else:
+            st.info("🔧 Please select longitude, latitude, and value columns in the sidebar to display the map")
+    
+    with tab2:
+        st.header("Filtered Data Table")
+        st.dataframe(df, use_container_width=True, height=400)
+        
+        # Download button for filtered data
+        if not df.empty:
+            csv = df.to_csv(index=False)
+            b64 = base64.b64encode(csv.encode()).decode()
+            href = f'<a href="data:file/csv;base64,{b64}" download="filtered_housing_data.csv" class="download-button">📥 Download Filtered Data (CSV)</a>'
+            st.markdown(href, unsafe_allow_html=True)
+    
+    with tab3:
+        st.header("Data Statistics")
+        
+        if st.session_state.value_col:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Value Distribution")
+                fig_hist = px.histogram(
+                    df, 
+                    x=st.session_state.value_col,
+                    nbins=30,
+                    title=f"Distribution of {st.session_state.value_col}",
+                    color_discrete_sequence=['#4e79a7']
+                )
+                fig_hist.update_layout(height=300)
+                st.plotly_chart(fig_hist, use_container_width=True)
+            
+            with col2:
+                st.subheader("Value by Location")
+                if 'ocean_proximity' in df.columns:
+                    fig_box = px.box(
+                        df,
+                        x='ocean_proximity',
+                        y=st.session_state.value_col,
+                        title=f"{st.session_state.value_col} by Ocean Proximity",
+                        color='ocean_proximity'
+                    )
+                    fig_box.update_layout(height=300)
+                    st.plotly_chart(fig_box, use_container_width=True)
+        
+        # Show correlation heatmap if multiple numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if len(numeric_cols) > 1:
+            st.subheader("Feature Correlations")
+            corr_matrix = df[numeric_cols].corr()
+            fig_corr = px.imshow(
+                corr_matrix,
+                text_auto=True,
+                title="Correlation Heatmap",
+                color_continuous_scale="RdBu_r",
+                aspect='auto'
+            )
+            fig_corr.update_layout(height=400)
+            st.plotly_chart(fig_corr, use_container_width=True)
 
-# Footer with theme-aware styling
+else:
+    st.info("🏠 Welcome to the Housing Data Explorer! Upload your CSV file in the sidebar to get started.")
+    
+    # Show example data structure
+    st.subheader("Example Data Format")
+    st.markdown("""
+    Your CSV should contain columns similar to this example:
+    - longitude: -121.44, -121.44, -121.43, ...
+    - latitude: 37.74, 37.73, 37.73, ...
+    - median_house_value: 112500.0, 208100.0, 134700.0, ...
+    - Other optional columns: housing_median_age, total_rooms, total_bedrooms, population, households, median_income, ocean_proximity
+    """)
+
+# Footer
 st.markdown("---")
-st.markdown(f"""
-<div class="footer">
-    <div class="footer-text">
-        🔄 Flexible Data Handling • 🔒 Secure File Uploads • 📊 Interactive Visualization<br>
-        <small>Built with Streamlit • No data restrictions • All column types accepted</small>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("💡 **Tip:** Use the sidebar controls to filter data and customize the map visualization. Hover over points on the map to see detailed information.")
